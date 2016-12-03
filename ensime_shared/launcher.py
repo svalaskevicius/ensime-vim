@@ -11,7 +11,7 @@ import time
 
 from string import Template
 
-from ensime_shared.config import BOOTSTRAPS_ROOT, ProjectConfig
+from ensime_shared.config import BOOTSTRAPS_ROOT
 from ensime_shared.errors import InvalidJavaPathError
 from ensime_shared.util import catch, Util
 
@@ -57,14 +57,14 @@ class EnsimeProcess(object):
 class EnsimeLauncher(object):
     ENSIME_V1 = '1.0.0'
     ENSIME_V2 = '2.0.0-SNAPSHOT'
-    SBT_VERSION = '0.13.12'
+    SBT_VERSION = '0.13.13'
+    SBT_COURSIER_COORDS = ('io.get-coursier', 'sbt-coursier', '1.0.0-M15')
 
-    def __init__(self, vim, config_path, server_v2, base_dir=BOOTSTRAPS_ROOT):
+    def __init__(self, vim, config, server_v2, base_dir=BOOTSTRAPS_ROOT):
         self.vim = vim
+        self.config = config
         self.server_v2 = server_v2
         self.ensime_version = self.ENSIME_V2 if server_v2 else self.ENSIME_V1
-        self._config_path = os.path.abspath(config_path)
-        self.config = ProjectConfig(self._config_path)
         self.scala_minor = self.config['scala-version'][:4]
         self.base_dir = os.path.abspath(base_dir)
         self.classpath_file = os.path.join(self.base_dir,
@@ -83,8 +83,8 @@ class EnsimeLauncher(object):
         return self.start_process(classpath) if classpath else None
 
     def load_classpath(self):
-        if not os.path.exists(self.classpath_file):
-            if not self.generate_classpath():
+        if not self.isinstalled():
+            if not self.install():  # This should probably be an exception?
                 return None
 
         classpath = "{}:{}/lib/tools.jar".format(
@@ -115,8 +115,8 @@ class EnsimeLauncher(object):
 
         args = (
             [java, "-cp", classpath] +
-            [a for a in java_flags if a != ""] +
-            ["-Densime.config={}".format(self._config_path),
+            [a for a in java_flags if a] +
+            ["-Densime.config={}".format(self.config.filepath),
              "org.ensime.server.Server"])
         process = subprocess.Popen(
             args,
@@ -129,13 +129,21 @@ class EnsimeLauncher(object):
         def on_stop():
             log.close()
             null.close()
-            with catch(Exception, lambda e: None):
+            with catch(Exception):
                 os.remove(pid_path)
 
         return EnsimeProcess(cache_dir, process, log_path, on_stop)
 
-    def generate_classpath(self):
+    # TODO: should maybe check if the build.sbt matches spec (versions, etc.)
+    def isinstalled(self):
+        """Returns whether ENSIME server for this launcher is installed."""
+        return os.path.exists(self.classpath_file)
+
+    def install(self):
+        """Installs ENSIME server with a bootstrap sbt project and generates its classpath."""
         project_dir = os.path.dirname(self.classpath_file)
+        sbt_plugin = """addSbtPlugin("{0}" % "{1}" % "{2}")"""
+
         Util.mkdir_p(project_dir)
         Util.mkdir_p(os.path.join(project_dir, "project"))
         Util.write_file(
@@ -146,14 +154,14 @@ class EnsimeLauncher(object):
             "sbt.version={}".format(self.SBT_VERSION))
         Util.write_file(
             os.path.join(project_dir, "project", "plugins.sbt"),
-            """addSbtPlugin("io.get-coursier" % "sbt-coursier" % "1.0.0-M11")""")
+            sbt_plugin.format(*self.SBT_COURSIER_COORDS))
 
         # Synchronous update of the classpath via sbt
         # see https://github.com/ensime/ensime-vim/issues/29
         cd_cmd = "cd {}".format(project_dir)
         sbt_cmd = "sbt -Dsbt.log.noformat=true -batch saveClasspath"
-        inside_nvim = int(self.vim.eval("has('nvim')"))
-        if inside_nvim:
+
+        if int(self.vim.eval("has('nvim')")):
             import tempfile
             import re
             tmp_dir = tempfile.gettempdir()
@@ -234,7 +242,7 @@ saveClasspathTask := {
         """Reorder classpath and put monkeys-jar in the first place."""
         success = False
 
-        with catch((IOError, OSError), lambda e: None):
+        with catch((IOError, OSError)):
             with open(classpath_file, "r") as f:
                 classpath = f.readline()
 

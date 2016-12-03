@@ -111,7 +111,8 @@ class Ensime(object):
         """
         server_v2 = self.using_server_v2()
         editor = Editor(self._vim)
-        launcher = EnsimeLauncher(self._vim, config_path, server_v2)
+        config = ProjectConfig(config_path)
+        launcher = EnsimeLauncher(self._vim, config, server_v2)
         if server_v2:
             return EnsimeClientV2(editor, self._vim, launcher)
         else:
