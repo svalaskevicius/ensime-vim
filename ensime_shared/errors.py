@@ -10,6 +10,10 @@ class InvalidJavaPathError(OSError):
         super(InvalidJavaPathError, self).__init__(errno, msg, filename, *args)
 
 
+class LaunchError(RuntimeError):
+    """Raised when ensime-vim cannot launch the ENSIME server."""
+
+
 class Error(object):
     """Represents an error in source code reported by ENSIME."""
 

@@ -193,8 +193,9 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                 self.log.debug(str(inspect.stack()))
                 self.log.debug('setup(quiet=%s, bootstrap_server=%s) called by %s()',
                                quiet, bootstrap_server, called_by)
-                no_classpath = not os.path.exists(self.launcher.classpath_file)
-                if not bootstrap_server and no_classpath:
+
+                installed = self.launcher.strategy.isinstalled()
+                if not installed and not bootstrap_server:
                     if not quiet:
                         scala = self.launcher.config.get('scala-version')
                         msg = feedback["prompt_server_install"].format(scala_version=scala)
@@ -261,6 +262,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
     def connect_ensime_server(self):
         """Start initial connection with the server."""
         self.log.debug('connect_ensime_server: in')
+        server_v2 = isinstance(self, EnsimeClientV2)
 
         def disable_completely(e):
             if e:
@@ -272,12 +274,12 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             self.number_try_connection -= 1
             if not self.ensime_server:
                 port = self.ensime.http_port()
-                uri = "websocket" if self.launcher.server_v2 else "jerky"
+                uri = "websocket" if server_v2 else "jerky"
                 self.ensime_server = gconfig["ensime_server"].format(port, uri)
             with catch(Exception, disable_completely):
                 from websocket import create_connection
                 # Use the default timeout (no timeout).
-                options = {"subprotocols": ["jerky"]} if self.launcher.server_v2 else {}
+                options = {"subprotocols": ["jerky"]} if server_v2 else {}
                 self.log.debug("About to connect to %s with options %s",
                                self.ensime_server, options)
                 self.ws = create_connection(self.ensime_server, **options)
