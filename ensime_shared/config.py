@@ -7,7 +7,7 @@ import sexpdata
 
 from ensime_shared.util import Util
 
-BOOTSTRAPS_ROOT = os.path.join(os.environ['HOME'], '.config/ensime-vim/')
+BOOTSTRAPS_ROOT = os.path.join(os.environ['HOME'], '.config', 'ensime-vim')
 """Default directory where ENSIME server bootstrap projects will be created."""
 
 LOG_FORMAT = '%(levelname)-8s <%(asctime)s> (%(filename)s:%(lineno)d) - %(message)s'

@@ -50,8 +50,9 @@ class Ensime(object):
         self._vim = vim
         self.clients = {}
 
+    @property
     def using_server_v2(self):
-        """Whether user has configured the plugin to use ENSIME v2 protocol."""
+        """bool: Whether user has configured the plugin to use ENSIME v2 protocol."""
         return bool(self.get_setting('server_v2', 0))
 
     def get_setting(self, key, default):
@@ -109,10 +110,11 @@ class Ensime(object):
 
         This will launch the ENSIME server for the project as a side effect.
         """
-        server_v2 = self.using_server_v2()
+        config = ProjectConfig(config_path)
         editor = Editor(self._vim)
-        launcher = EnsimeLauncher(self._vim, config_path, server_v2)
-        if server_v2:
+        launcher = EnsimeLauncher(self._vim, config)
+
+        if self.using_server_v2:
             return EnsimeClientV2(editor, self._vim, launcher)
         else:
             return EnsimeClientV1(editor, self._vim, launcher)

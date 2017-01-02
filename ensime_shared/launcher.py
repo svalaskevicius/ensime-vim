@@ -1,7 +1,6 @@
 # coding: utf-8
 
 import errno
-import fnmatch
 import os
 import shutil
 import signal
@@ -9,10 +8,12 @@ import socket
 import subprocess
 import time
 
+from abc import ABCMeta, abstractmethod
+from fnmatch import fnmatch
 from string import Template
 
-from ensime_shared.config import BOOTSTRAPS_ROOT, ProjectConfig
-from ensime_shared.errors import InvalidJavaPathError
+from ensime_shared.config import BOOTSTRAPS_ROOT
+from ensime_shared.errors import InvalidJavaPathError, LaunchError
 from ensime_shared.util import catch, Util
 
 
@@ -36,6 +37,7 @@ class EnsimeProcess(object):
         return not (self.__stopped_manually or self.is_running())
 
     def is_running(self):
+        # What? If there's no process, it's running? This is mad confusing.
         return self.process is None or self.process.poll() is None
 
     def is_ready(self):
@@ -55,50 +57,103 @@ class EnsimeProcess(object):
 
 
 class EnsimeLauncher(object):
-    ENSIME_V1 = '1.0.0'
-    ENSIME_V2 = '2.0.0-SNAPSHOT'
-    SBT_VERSION = '0.13.12'
+    """Launches ENSIME processes, installing the server if needed."""
 
-    def __init__(self, vim, config_path, server_v2, base_dir=BOOTSTRAPS_ROOT):
-        self.vim = vim
-        self.server_v2 = server_v2
-        self.ensime_version = self.ENSIME_V2 if server_v2 else self.ENSIME_V1
-        self._config_path = os.path.abspath(config_path)
-        self.config = ProjectConfig(self._config_path)
-        self.scala_minor = self.config['scala-version'][:4]
-        self.base_dir = os.path.abspath(base_dir)
-        self.classpath_file = os.path.join(self.base_dir,
-                                           self.scala_minor,
-                                           self.ensime_version,
-                                           'classpath')
-        self._migrate_legacy_bootstrap_location()
+    def __init__(self, vim, config, base_dir=BOOTSTRAPS_ROOT):
+        self.config = config
 
+        # If an ENSIME assembly jar is in place, it takes launch precedence
+        assembly = AssemblyJar(config, base_dir)
+
+        if assembly.isinstalled():
+            self.strategy = assembly
+        elif self.config.get('ensime-server-jars'):
+            self.strategy = DotEnsimeLauncher(config)
+        else:
+            self.strategy = SbtBootstrap(vim, config, base_dir)
+
+        self._remove_legacy_bootstrap()
+
+    # Design musing: we could return a Boolean success value then encapsulate
+    # and expose more lifecycle control through EnsimeLauncher, instead of
+    # pushing up an EnsimeProcess and leaving callers with the responsibilities
+    # of dealing with that. EnsimeClient needs a bunch of (worthwhile) refactoring
+    # before this could happen, though.
     def launch(self):
+        # This is legacy -- what is it really accomplishing?
         cache_dir = self.config['cache-dir'],
         process = EnsimeProcess(cache_dir, None, None, lambda: None)
         if process.is_ready():
             return process
 
-        classpath = self.load_classpath()
-        return self.start_process(classpath) if classpath else None
-
-    def load_classpath(self):
-        if not os.path.exists(self.classpath_file):
-            if not self.generate_classpath():
+        if not self.strategy.isinstalled():
+            if not self.strategy.install():  # TODO: This should be an exception
                 return None
 
-        classpath = "{}:{}/lib/tools.jar".format(
-            Util.read_file(self.classpath_file), self.config['java-home'])
+        return self.strategy.launch()
 
-        # Allow override with a local development server jar, see:
-        # http://ensime.github.io/contributing/#manual-qa-testing
-        for x in os.listdir(self.base_dir):
-            if fnmatch.fnmatch(x, "ensime_" + self.scala_minor + "*-assembly.jar"):
-                classpath = os.path.join(self.base_dir, x) + ":" + classpath
+    @staticmethod
+    def _remove_legacy_bootstrap():
+        """Remove bootstrap projects from old path, they'd be really stale by now."""
+        home = os.environ['HOME']
+        old_base_dir = os.path.join(home, '.config', 'classpath_project_ensime')
+        if os.path.isdir(old_base_dir):
+            shutil.rmtree(old_base_dir, ignore_errors=True)
 
-        return classpath
 
-    def start_process(self, classpath):
+class LaunchStrategy:
+    """A strategy for how to install and launch the ENSIME server.
+
+    Newer build tool versions like sbt-ensime since 1.12.0 may support
+    installing the server and publishing the jar locations in ``.ensime``
+    so that clients don't need to handle installation. Strategies exist to
+    support older versions and build tools that haven't caught up to this.
+
+    Args:
+        config (ProjectConfig): Configuration for the server instance's project.
+    """
+    __metaclass__ = ABCMeta
+
+    def __init__(self, config):
+        self.config = config
+
+    @abstractmethod
+    def isinstalled(self):
+        """Whether ENSIME has been installed satisfactorily for the launcher."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def install(self):
+        """Installs ENSIME server if needed.
+
+        Returns:
+            bool: Whether the installation completed successfully.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def launch(self):
+        """Launches a server instance for the configured project.
+
+        Returns:
+            EnsimeProcess: A process handle for the launched server.
+
+        Raises:
+            LaunchError: If server can't be launched according to the strategy.
+        """
+        raise NotImplementedError
+
+    def _start_process(self, classpath):
+        """Given a classpath prepared for running ENSIME, spawns a server process
+        in a way that is otherwise agnostic to how the strategy installs ENSIME.
+
+        Args:
+            classpath (str): Colon-separated classpath string suitable for passing
+                as an argument to ``java -cp``.
+
+        Returns:
+            EnsimeProcess: A process handle for the launched server.
+        """
         cache_dir = self.config['cache-dir']
         java_flags = self.config['java-flags']
 
@@ -115,8 +170,8 @@ class EnsimeLauncher(object):
 
         args = (
             [java, "-cp", classpath] +
-            [a for a in java_flags if a != ""] +
-            ["-Densime.config={}".format(self._config_path),
+            [a for a in java_flags if a] +
+            ["-Densime.config={}".format(self.config.filepath),
              "org.ensime.server.Server"])
         process = subprocess.Popen(
             args,
@@ -129,13 +184,114 @@ class EnsimeLauncher(object):
         def on_stop():
             log.close()
             null.close()
-            with catch(Exception, lambda e: None):
+            with catch(Exception):
                 os.remove(pid_path)
 
         return EnsimeProcess(cache_dir, process, log_path, on_stop)
 
-    def generate_classpath(self):
+
+class AssemblyJar(LaunchStrategy):
+    """Launches an ENSIME assembly jar if found in ``~/.config/ensime-vim`` (or
+    base_dir). This is intended for ad hoc local development builds, or behind-
+    the-firewall corporate installs. See:
+
+    http://ensime.github.io/contributing/#manual-qa-testing
+    """
+
+    def __init__(self, config, base_dir):
+        super(AssemblyJar, self).__init__(config)
+        self.base_dir = os.path.realpath(base_dir)
+        self.jar_path = None
+        self.toolsjar = os.path.join(config['java-home'], 'lib', 'tools.jar')
+
+    def isinstalled(self):
+        scala_minor = self.config['scala-version'][:4]
+        for fname in os.listdir(self.base_dir):
+            if fnmatch(fname, "ensime_" + scala_minor + "*-assembly.jar"):
+                self.jar_path = os.path.join(self.base_dir, fname)
+                return True
+
+        return False
+
+    def install(self):
+        # Nothing to do for this strategy, server is built in the jar
+        return True
+
+    def launch(self):
+        if not self.isinstalled():
+            raise LaunchError('ENSIME assembly jar not found in {}'.format(self.base_dir))
+
+        classpath = [self.jar_path, self.toolsjar] + self.config['scala-compiler-jars']
+        return self._start_process(':'.join(classpath))
+
+
+class DotEnsimeLauncher(LaunchStrategy):
+    """Launches a pre-installed ENSIME via jar paths in ``.ensime``."""
+
+    def __init__(self, config):
+        super(DotEnsimeLauncher, self).__init__(config)
+        server_jars = self.config['ensime-server-jars']
+        compiler_jars = self.config['scala-compiler-jars']
+
+        # Order is important so that monkeys takes precedence
+        self.classpath = server_jars + compiler_jars
+
+    def isinstalled(self):
+        return all([os.path.exists(jar) for jar in self.classpath])
+
+    def install(self):
+        # Nothing to do, the build tool has done it if we're in this strategy
+        return True
+
+    def launch(self):
+        if not self.isinstalled():
+            raise LaunchError('Some jars reported by .ensime do not exist: {}'
+                              .format(self.classpath))
+        return self._start_process(':'.join(self.classpath))
+
+
+class SbtBootstrap(LaunchStrategy):
+    """Install ENSIME via sbt with a bootstrap project.
+
+    This strategy is intended for versions of sbt-ensime prior to 1.12.0
+    and other build tools that don't install ENSIME & report its jar paths.
+
+    Support for this installation method will be dropped after users and build
+    tools have some time to catch up. Consider it deprecated.
+    """
+    ENSIME_V1 = '1.0.0'
+    SBT_VERSION = '0.13.13'
+    SBT_COURSIER_COORDS = ('io.get-coursier', 'sbt-coursier', '1.0.0-M15')
+
+    def __init__(self, vim, config, base_dir):
+        super(SbtBootstrap, self).__init__(config)
+        self.vim = vim
+        self.ensime_version = self.ENSIME_V1
+        self.scala_minor = self.config['scala-version'][:4]
+        self.base_dir = os.path.realpath(base_dir)
+        self.toolsjar = os.path.join(self.config['java-home'], 'lib', 'tools.jar')
+        self.classpath_file = os.path.join(self.base_dir,
+                                           self.scala_minor,
+                                           self.ensime_version,
+                                           'classpath')
+
+    def launch(self):
+        if not self.isinstalled():
+            raise LaunchError('Bootstrap classpath file does not exist at {}'
+                              .format(self.classpath_file))
+
+        classpath = Util.read_file(self.classpath_file) + ':' + self.toolsjar
+        return self._start_process(classpath)
+
+    # TODO: should maybe check if the build.sbt matches spec (versions, etc.)
+    def isinstalled(self):
+        return os.path.exists(self.classpath_file)
+
+    def install(self):
+        """Installs ENSIME server with a bootstrap sbt project and generates its classpath."""
         project_dir = os.path.dirname(self.classpath_file)
+        sbt_plugin = """addSbtPlugin("{0}" % "{1}" % "{2}")"""
+
         Util.mkdir_p(project_dir)
         Util.mkdir_p(os.path.join(project_dir, "project"))
         Util.write_file(
@@ -146,14 +302,14 @@ class EnsimeLauncher(object):
             "sbt.version={}".format(self.SBT_VERSION))
         Util.write_file(
             os.path.join(project_dir, "project", "plugins.sbt"),
-            """addSbtPlugin("io.get-coursier" % "sbt-coursier" % "1.0.0-M11")""")
+            sbt_plugin.format(*self.SBT_COURSIER_COORDS))
 
         # Synchronous update of the classpath via sbt
         # see https://github.com/ensime/ensime-vim/issues/29
         cd_cmd = "cd {}".format(project_dir)
         sbt_cmd = "sbt -Dsbt.log.noformat=true -batch saveClasspath"
-        inside_nvim = int(self.vim.eval("has('nvim')"))
-        if inside_nvim:
+
+        if int(self.vim.eval("has('nvim')")):
             import tempfile
             import re
             tmp_dir = tempfile.gettempdir()
@@ -234,7 +390,7 @@ saveClasspathTask := {
         """Reorder classpath and put monkeys-jar in the first place."""
         success = False
 
-        with catch((IOError, OSError), lambda e: None):
+        with catch((IOError, OSError)):
             with open(classpath_file, "r") as f:
                 classpath = f.readline()
 
@@ -255,11 +411,3 @@ saveClasspathTask := {
             success = True
 
         return success
-
-    @staticmethod
-    def _migrate_legacy_bootstrap_location():
-        """Moves an old ENSIME installer root to tidier location."""
-        home = os.environ['HOME']
-        old_base_dir = os.path.join(home, '.config/classpath_project_ensime')
-        if os.path.isdir(old_base_dir):
-            shutil.move(old_base_dir, BOOTSTRAPS_ROOT)
