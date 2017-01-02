@@ -16,7 +16,9 @@ class TypecheckHandler(object):
 
     def buffer_typechecks_and_display(self, call_id, payload):
         """Adds typecheck events to the buffer, and displays them right away.
-        This is currently used as a workaround for issue https://github.com/ensime/ensime-server/issues/1616
+
+        This is a workaround for this issue:
+        https://github.com/ensime/ensime-server/issues/1616
         """
         self.buffer_typechecks(call_id, payload)
         self.editor.display_notes(self.buffered_notes)
