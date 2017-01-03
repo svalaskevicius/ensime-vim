@@ -280,6 +280,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                 from websocket import create_connection
                 # Use the default timeout (no timeout).
                 options = {"subprotocols": ["jerky"]} if server_v2 else {}
+                options['enable_multithread'] = True
                 self.log.debug("About to connect to %s with options %s",
                                self.ensime_server, options)
                 self.ws = create_connection(self.ensime_server, **options)
