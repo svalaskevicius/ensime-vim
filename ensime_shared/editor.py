@@ -9,7 +9,7 @@ class Editor(object):
 
     def __init__(self, driver):
         self._vim = driver
-        self._isneovim = bool(self._vim.eval("has('nvim')"))
+        self._isneovim = bool(int(self._vim.eval("has('nvim')")))
 
         # Old API
         self._errors = []   # Line error structs reported from ENSIME notes
@@ -302,10 +302,15 @@ class Editor(object):
 
     def raw_message(self, message, silent=False):
         """Display a message in the Vim status line."""
+        vim = self._vim
         cmd = 'echo "{}"'.format(message.replace('"', '\\"'))
         if silent:
             cmd = 'silent ' + cmd
-        self._vim.command(cmd)
+
+        if self.isneovim:
+            vim.async_call(vim.command, cmd)
+        else:
+            vim.command(cmd)
 
     def symbol_for_inspector_line(self, lineno):
         """Given a line number for the Package Inspector window, returns the

@@ -115,9 +115,36 @@ class Ensime(object):
         launcher = EnsimeLauncher(self._vim, config)
 
         if self.using_server_v2:
-            return EnsimeClientV2(editor, self._vim, launcher)
+            return EnsimeClientV2(editor, launcher)
         else:
-            return EnsimeClientV1(editor, self._vim, launcher)
+            return EnsimeClientV1(editor, launcher)
+
+    def disable_plugin(self):
+        """Disable ensime-vim, in the event of an error we can't usefully
+        recover from.
+
+        Todo:
+            This is incomplete and unreliable, see:
+            https://github.com/ensime/ensime-vim/issues/294
+
+            If used from a secondary thread, this may need to use threadsafe
+            Vim calls where available -- see :meth:`Editor.raw_message`.
+        """
+        for path in self.runtime_paths:
+            self._vim.command('set runtimepath-={}'.format(path))
+
+    @property
+    def runtime_paths(self):  # TODO: memoize
+        """All the runtime paths of ensime-vim plugin files."""
+        runtimepath = self._vim.eval('&runtimepath')
+        plugin = "ensime-vim"
+        paths = []
+
+        for path in runtimepath.split(','):
+            if plugin in path:
+                paths.append(os.path.expanduser(path))
+
+        return paths
 
     @execute_with_client()
     def com_en_toggle_teardown(self, client, args, range=None):
