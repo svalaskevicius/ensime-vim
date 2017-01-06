@@ -48,7 +48,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
     which stores the a handler per response type.
     """
 
-    def __init__(self, editor, vim, launcher):  # noqa: C901 FIXME
+    def __init__(self, editor, launcher):  # noqa: C901 FIXME
         # Our use case of a logger per class instance with independent log files
         # requires a bunch of manual programmatic config :-/
         def setup_logger():
@@ -81,24 +81,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             logger.info('Initializing project - %s', projectdir)
             return logger
 
-        def fetch_runtime_paths():
-            """Fetch all the runtime paths of ensime-vim plugin.
-
-            disable_plugin needs this to run on the main thread, hence the
-            eager execution from constructor.
-            """
-            runtimepath = self.vim.eval('&runtimepath')
-            plugin = "ensime-vim"
-            paths = []
-
-            for path in runtimepath.split(','):
-                if plugin in path:
-                    paths.append(os.path.expanduser(path))
-
-            return paths
-
         super(EnsimeClient, self).__init__()
-        self.vim = vim
         self.editor = editor
         self.launcher = launcher
 
@@ -127,11 +110,6 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         self.toggle_teardown = True
         self.connection_attempts = 0
         self.tmp_diff_folder = tempfile.mkdtemp(prefix='ensime-vim-diffs')
-
-        # Set the runtime path here in case we need
-        # to disable the plugin. It needs to be done
-        # beforehand since vim.eval is not threadsafe
-        self.runtime_paths = fetch_runtime_paths()
 
         # By default, don't connect to server more than once
         self.number_try_connection = 1
@@ -166,9 +144,9 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                         connection_alive = False  # noqa: F841
                     else:
                         if not self.number_try_connection:
-                            # Stop everything and disable plugin
+                            # Stop everything.
                             self.teardown()
-                            self.disable_plugin()
+                            self._display_ws_warning()
 
                 # WebSocket exception may happen
                 # FIXME: What Exception class? Don't catch Exception
@@ -218,26 +196,10 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         msg = feedback["module_missing"]
         self.editor.raw_message(msg.format(name, name))
 
-    # TODO: this should be the Ensime class's responsibility, not EnsimeClient;
-    #       move (and eliminate self.vim) after fixing, see #294
-    def disable_plugin(self):
-        """Disable plugin temporarily, including also related plugins."""
-        self.log.debug('disable_plugin: in')
-
-        def threadsafe_vim(command):
-            """Threadsafe call if neovim, normal if vim."""
-            def normal_vim(e):
-                self.vim.command(command)
-            with catch(Exception, normal_vim):
-                self.vim.session.threadsafe_call(command)
-
-        for path in self.runtime_paths:
-            self.log.debug(path)
-            threadsafe_vim('set runtimepath-={}'.format(path))
-
+    def _display_ws_warning(self):
         warning = "A WS exception happened, 'ensime-vim' has been disabled. " +\
             "For more information, have a look at the logs in `.ensime_cache`"
-        threadsafe_vim('echo "{}"'.format(warning))
+        self.editor.raw_message(warning)
 
     def send(self, msg):
         """Send something to the ensime server."""
@@ -262,7 +224,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             if e:
                 self.log.error('connection error: %s', e, exc_info=True)
             self.shutdown_server()
-            self.disable_plugin()
+            self._display_ws_warning()
 
         if self.running and self.number_try_connection:
             self.number_try_connection -= 1
@@ -274,6 +236,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                 from websocket import create_connection
                 # Use the default timeout (no timeout).
                 options = {"subprotocols": ["jerky"]} if server_v2 else {}
+                options['enable_multithread'] = True
                 self.log.debug("About to connect to %s with options %s",
                                self.ensime_server, options)
                 self.ws = create_connection(self.ensime_server, **options)
