@@ -148,8 +148,10 @@ class LaunchStrategy:
         in a way that is otherwise agnostic to how the strategy installs ENSIME.
 
         Args:
-            classpath (str): Colon-separated classpath string suitable for passing
-                as an argument to ``java -cp``.
+            classpath (list of str): list of paths to jars or directories
+            (Within this function the list is joined with a system dependent
+            path separator to create a single string argument to suitable to 
+            pass to ``java -cp`` as a classpath)
 
         Returns:
             EnsimeProcess: A process handle for the launched server.
@@ -161,7 +163,7 @@ class LaunchStrategy:
         log_path = os.path.join(cache_dir, "server.log")
         log = open(log_path, "w")
         null = open(os.devnull, "r")
-        java = os.path.join(self.config['java-home'], 'bin', 'java')
+        java = os.path.join(self.config['java-home'], 'bin', 'java' if os.name != 'nt' else 'java.exe')
 
         if not os.path.exists(java):
             raise InvalidJavaPathError(errno.ENOENT, 'No such file or directory', java)
@@ -169,7 +171,7 @@ class LaunchStrategy:
             raise InvalidJavaPathError(errno.EACCES, 'Permission denied', java)
 
         args = (
-            [java, "-cp", classpath] +
+            [java, "-cp", (':' if os.name != 'nt' else ';').join(classpath)] +
             [a for a in java_flags if a] +
             ["-Densime.config={}".format(self.config.filepath),
              "org.ensime.server.Server"])
@@ -224,7 +226,7 @@ class AssemblyJar(LaunchStrategy):
             raise LaunchError('ENSIME assembly jar not found in {}'.format(self.base_dir))
 
         classpath = [self.jar_path, self.toolsjar] + self.config['scala-compiler-jars']
-        return self._start_process(':'.join(classpath))
+        return self._start_process(classpath)
 
 
 class DotEnsimeLauncher(LaunchStrategy):
@@ -249,7 +251,7 @@ class DotEnsimeLauncher(LaunchStrategy):
         if not self.isinstalled():
             raise LaunchError('Some jars reported by .ensime do not exist: {}'
                               .format(self.classpath))
-        return self._start_process(':'.join(self.classpath))
+        return self._start_process(self.classpath)
 
 
 class SbtBootstrap(LaunchStrategy):
