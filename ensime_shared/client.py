@@ -602,20 +602,14 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             self.editor.lazy_display_error(filename)
             self.unqueue()
 
-    def on_cursor_hold(self, filename):
-        """Handler for event CursorHold."""
+    def tick(self, filename):
+        """Try to connect and display messages in queue."""
         if self.connection_attempts < 10:
             # Trick to connect ASAP when
             # plugin is  started without
             # user interaction (CursorMove)
             self.setup(True, False)
             self.connection_attempts += 1
-        self.unqueue_and_display(filename)
-        self.editor.cursorhold()
-
-    def on_cursor_move(self, filename):
-        """Handler for event CursorMoved."""
-        self.setup(True, False)
         self.unqueue_and_display(filename)
 
     def vim_enter(self, filename):

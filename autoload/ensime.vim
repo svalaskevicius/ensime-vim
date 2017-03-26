@@ -39,16 +39,12 @@ function! ensime#au_vim_enter(filename) abort
     return s:call_plugin('au_vim_enter', [a:filename])
 endfunction
 
+function! ensime#au_buf_enter(filename) abort
+    return s:call_plugin('au_buf_enter', [a:filename])
+endfunction
+
 function! ensime#au_buf_leave(filename) abort
     return s:call_plugin('au_buf_leave', [a:filename])
-endfunction
-
-function! ensime#au_cursor_hold(filename) abort
-    return s:call_plugin('au_cursor_hold', [a:filename])
-endfunction
-
-function! ensime#au_cursor_moved(filename) abort
-    return s:call_plugin('au_cursor_moved', [a:filename])
 endfunction
 
 function! ensime#com_en_no_teardown(args, range) abort
@@ -153,6 +149,18 @@ endfunction
 
 function! ensime#com_en_clients(args, range) abort
     return s:call_plugin('com_en_clients', [a:args, a:range])
+endfunction
+
+function! ensime#au_cursor_hold(filename) abort
+    return s:call_plugin('au_cursor_hold', [a:filename])
+endfunction
+
+function! ensime#au_cursor_moved(filename) abort
+    return s:call_plugin('au_cursor_moved', [a:filename])
+endfunction
+
+function! ensime#fun_en_tick(timer) abort
+    return s:call_plugin('fun_en_tick', [a:timer])
 endfunction
 
 function! s:call_plugin(method_name, args) abort

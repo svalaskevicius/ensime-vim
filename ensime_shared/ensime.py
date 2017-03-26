@@ -6,6 +6,7 @@ from .client import EnsimeClientV1, EnsimeClientV2
 from .config import ProjectConfig
 from .editor import Editor
 from .launcher import EnsimeLauncher
+from .ticker import Ticker
 
 
 def execute_with_client(quiet=False,
@@ -48,6 +49,7 @@ class Ensime(object):
         # race condition of autocommand handlers being invoked as they're being
         # defined.
         self._vim = vim
+        self._ticker = None
         self.clients = {}
 
     @property
@@ -115,9 +117,19 @@ class Ensime(object):
         launcher = EnsimeLauncher(self._vim, config)
 
         if self.using_server_v2:
-            return EnsimeClientV2(editor, launcher)
+            client = EnsimeClientV2(editor, launcher)
         else:
-            return EnsimeClientV1(editor, launcher)
+            client = EnsimeClientV1(editor, launcher)
+
+        self._create_ticker()
+
+        return client
+
+    def _create_ticker(self):
+        """Create and start the periodic ticker."""
+        if not self._ticker:
+            self._ticker = Ticker(self._vim)
+
 
     def disable_plugin(self):
         """Disable ensime-vim, in the event of an error we can't usefully
@@ -146,6 +158,14 @@ class Ensime(object):
                 paths.append(os.path.expanduser(path))
 
         return paths
+
+    def tick_clients(self):
+        """Trigger the periodic tick function in the client."""
+        if not self._ticker:
+            self._create_ticker()
+
+        for client in self.clients.values():
+            self._ticker.tick(client)
 
     @execute_with_client()
     def com_en_toggle_teardown(self, client, args, range=None):
@@ -274,24 +294,28 @@ class Ensime(object):
         self.teardown()
 
     @execute_with_client()
+    def au_cursor_hold(self, client, filename):
+        self.tick_clients()
+
+    @execute_with_client()
+    def au_cursor_moved(self, client, filename):
+        self.tick_clients()
+
+    def fun_en_tick(self, timer):
+        self.tick_clients()
+
+    @execute_with_client()
+    def au_buf_enter(self, client, filename):
+        # Only set up to trigger the creation of a client
+        pass
+
+    @execute_with_client()
     def au_buf_leave(self, client, filename):
         client.buffer_leave(filename)
 
     @execute_with_client()
-    def au_cursor_hold(self, client, filename):
-        client.on_cursor_hold(filename)
-
-    @execute_with_client(quiet=True)
-    def au_cursor_moved(self, client, filename):
-        client.on_cursor_move(filename)
-
-    @execute_with_client()
     def fun_en_complete_func(self, client, findstart_and_base, base=None):
         """Invokable function from vim and neovim to perform completion."""
-        current_filetype = self._vim.eval('&filetype')
-        if current_filetype not in ['scala', 'java']:
-            return
-
         if isinstance(findstart_and_base, list):
             # Invoked by neovim
             findstart = findstart_and_base[0]

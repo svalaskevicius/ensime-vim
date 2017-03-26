@@ -117,6 +117,11 @@ class Editor(object):
 
         return choices[choice - 1]
 
+    def is_buffer_ensime_compatible(self):
+        """Return True if the current buffer is supported by Ensime."""
+        current_filetype = self._vim.eval('&filetype')
+        return current_filetype in ['scala', 'java']
+
     def set_buffer_options(self, options, bufnr=None):
         """Set buffer-local options for a buffer, defaulting to current.
 
@@ -200,8 +205,6 @@ class Editor(object):
     # ftplugin/scala/ensime.vim, custom/dotted filetypes & syntax
     def initialize(self):
         """Sets up initial ensime-vim editor settings."""
-        self._vim.options['updatetime'] = 1000
-
         # TODO: This seems wrong, the user setting value is never used anywhere.
         if 'EnErrorStyle' not in self._vim.vars:
             self._vim.vars['EnErrorStyle'] = 'EnError'
@@ -335,24 +338,6 @@ class Editor(object):
                 fqn.insert(0, line.split()[-1])
 
         return ".".join(fqn)
-
-    def cursorhold(self):
-        """Stuff that EnsimeClient does on CursorHold.
-
-        Todo:
-            This is a temporary placeholder for further refactoring.
-
-            IMO EnsimeClient should not have methods like ``on_cursor_hold``,
-            it's the wrong layer of abstraction for handlers of editor events.
-            I'm not sure where these should go yet though -- maybe the Ensime
-            class since it represents "the Vim plugin" as an entity, iterating
-            through its list of clients and calling the logic for each.
-        """
-        # Make sure no plugin overrides this
-        self._vim.options['updatetime'] = 1000
-        # Keys with no effect, just retrigger CursorHold
-        # http://vim.wikia.com/wiki/Timer_to_execute_commands_periodically
-        self._vim.command(r'call feedkeys("f\e")')
 
     def display_notes(self, notes):
         """Renders "notes" reported by ENSIME, such as typecheck errors."""
