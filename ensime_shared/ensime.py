@@ -130,7 +130,6 @@ class Ensime(object):
         if not self._ticker:
             self._ticker = Ticker(self._vim)
 
-
     def disable_plugin(self):
         """Disable ensime-vim, in the event of an error we can't usefully
         recover from.

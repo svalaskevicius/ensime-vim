@@ -41,6 +41,7 @@ class Util:
                 break
         return package
 
+
 @contextmanager
 def catch(exception, handler=lambda e: None):
     """If exception runs handler."""
