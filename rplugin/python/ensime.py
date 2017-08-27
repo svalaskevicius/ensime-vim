@@ -6,6 +6,7 @@ import sys
 
 import neovim
 
+
 def ensime_init_path():
     path = os.path.abspath(inspect.getfile(inspect.currentframe()))
     expected_nvim_path_end = os.path.join('rplugin', 'python', 'ensime.py')
