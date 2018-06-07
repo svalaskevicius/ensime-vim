@@ -137,7 +137,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         Value of sleep is low to improve responsiveness.
         """
         self.log.debug("entered poller")
-        while True:
+        while self.running:
             if self.ws:
                 self.log.debug('got ws!')
                 def logger_and_close(msg):
@@ -250,7 +250,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                     self.log.debug("About to connect to %s with options %s",
                                 self.ensime_server, options)
                     self.ws = await websockets.client.connect(self.ensime_server, **options)
-                    True
+                    return True
                 gotws = asyncio.run_coroutine_threadsafe(connect(), self.ws_loop).result(10)
             if gotws:
                 self.send_request({"typehint": "ConnectionInfoReq"})
