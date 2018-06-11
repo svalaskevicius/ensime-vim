@@ -147,6 +147,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                             # Stop everything.
                             self.teardown()
                             self._display_ws_warning()
+                            self.ws = None
 
                 with catch(Exception, logger_and_close):
                     self.log.debug('poller waiting')
