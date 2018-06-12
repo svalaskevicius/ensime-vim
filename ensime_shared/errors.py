@@ -37,14 +37,13 @@ class Error(object):
         if size < width:
             return message
         percent = float(cursor[1] - self.c) / (self.e - self.c)
-        center = int(percent * size)
-        start = int(center - width / 2)
-        end = int(center + width / 2)
+        start = int(percent * (size - width))
+        end = int(start + width)
         if start < 0:
             start = 0
             end = width
-        elif end > size:
-            end = size
-            start = size - width
+        if end >= size:
+            end = size - 1
+            start = end - width
         return message[start:end]
 
