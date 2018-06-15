@@ -636,9 +636,11 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                     call_id = _json.get("callId")
                     if _json["payload"]:
                         self.handle_incoming_response(call_id, _json["payload"])
+                    return True
                 except asyncio.TimeoutError:
                     self.log.debug("Unqueing failed: timeout: "+str(timeout))
                     resultFuture.cancel()
+        return False
 
 #        start, now = time.time(), time.time()
 #        wait = self.queue.empty() and should_wait
@@ -669,9 +671,11 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         """Unqueue messages and give feedback to user (if necessary)."""
         if self.running and self.ws:
             self.editor.lazy_display_error(filename)
-            self.unqueue(0) # TODO: no wait
+            while self.unqueue(0):
+                self.log.debug("Unqueued one, continuing")
 
     def tick(self, filename):
+        self.log.debug("TICK")
         """Try to connect and display messages in queue."""
         if self.connection_attempts < 10:
             # Trick to connect ASAP when
