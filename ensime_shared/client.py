@@ -677,7 +677,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
     def tick(self, filename):
         self.log.debug("TICK")
         """Try to connect and display messages in queue."""
-        if self.connection_attempts < 10:
+        if self.connection_attempts < 1000:
             # Trick to connect ASAP when
             # plugin is  started without
             # user interaction (CursorMove)

@@ -1,4 +1,4 @@
-REFRESH_TIMER = 1000
+REFRESH_TIMER = 100
 
 
 class Ticker(object):
