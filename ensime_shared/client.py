@@ -121,9 +121,6 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         self.connection_attempts = 0
         self.tmp_diff_folder = tempfile.mkdtemp(prefix='ensime-vim-diffs')
 
-        # By default, don't connect to server more than once
-        self.number_try_connection = 1
-
         self.debug_thread_id = None
         self.running = True
 
@@ -143,20 +140,30 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                 def logger_and_close(msg):
                     self.log.error('Websocket exception', exc_info=True)
                     if self.running:
-                        if not self.number_try_connection:
-                            # Stop everything.
-                            self.teardown()
-                            self._display_ws_warning()
-                            self.ws = None
+                        # Stop everything.
+                        self.teardown()
+                        self._display_ws_warning()
+                        self.ws = None
 
                 with catch(Exception, logger_and_close):
                     self.log.debug('poller waiting')
                     result = await self.ws.recv()
                     self.log.debug('got result!' + result)
-                    self.queue.put_nowait(result)
+                    #self.queue.put_nowait(result)
+                    
+                    _json = json.loads(result)
+                    # Watch out, it may not have callId
+                    call_id = _json.get("callId")
+                    if _json["payload"]:
+                        self.handle_incoming_response(call_id, _json["payload"])
 
             else:
                 self.log.debug('poller sleeping - no ws!')
+                try:
+                    await self.connect_ensime_server()
+                except Exception:
+                    self.log.debug("failed to connect")
+
                 await asyncio.sleep(sleep_t)
                 self.log.debug('poller slept well. no ws!')
 
@@ -195,13 +202,13 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
 
             return bool(self.ensime)
 
-        def ready_to_connect():
+        async def ready_to_connect():
             if not self.ws and self.ensime.is_ready():
-                self.connect_ensime_server()
+                await self.connect_ensime_server()
             return True
 
         # True if ensime is up and connection is ok, otherwise False
-        return self.running and lazy_initialize_ensime() and ready_to_connect()
+        return self.running and lazy_initialize_ensime() # and await ready_to_connect()
 
     def _display_ws_warning(self):
         warning = "A WS exception happened, 'ensime-vim' has been disabled. " +\
@@ -227,37 +234,29 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                 self.log.debug('send: sending JSON on WebSocket')
                 send_it(msg)
 
-    def connect_ensime_server(self):
+    async def connect_ensime_server(self):
         """Start initial connection with the server."""
         self.log.debug('connect_ensime_server: in')
         server_v2 = isinstance(self, EnsimeClientV2)
 
-        def disable_completely(e):
+        def log(e):
             if e:
-                self.log.error('connection error: %s', e, exc_info=True)
-            self.shutdown_server()
-            self._display_ws_warning()
+                self.log.warn('connection error: %s', e, exc_info=True)
 
-        if self.running and self.number_try_connection:
-            self.number_try_connection -= 1
+        if self.running:
             if not self.ensime_server:
                 port = self.ensime.http_port()
                 uri = "websocket" if server_v2 else "jerky"
                 self.ensime_server = gconfig["ensime_server"].format(port, uri)
-            with catch(Exception, disable_completely):
+            with catch(Exception, log):
                 # Use the default timeout (no timeout).
-                async def connect():
-                    options = {"subprotocols": ["jerky"]} if server_v2 else {}
-                    self.log.debug("About to connect to %s with options %s",
-                                self.ensime_server, options)
-                    self.ws = await websockets.client.connect(self.ensime_server, **options)
-                    return True
-                gotws = asyncio.run_coroutine_threadsafe(connect(), self.ws_loop).result(10)
-            if gotws:
+                options = {"subprotocols": ["jerky"]} if server_v2 else {}
+                self.log.debug("About to connect to %s with options %s",
+                            self.ensime_server, options)
+                self.ws = await websockets.client.connect(self.ensime_server, **options)
                 self.send_request({"typehint": "ConnectionInfoReq"})
         else:
-            # If it hits this, number_try_connection is 0
-            disable_completely(None)
+            self.log.debug("waiting for server to be running")
 
     def shutdown_server(self):
         """Shut down server if it is alive."""
@@ -671,11 +670,11 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         """Unqueue messages and give feedback to user (if necessary)."""
         if self.running and self.ws:
             self.editor.lazy_display_error(filename)
-            while self.unqueue(0):
-                self.log.debug("Unqueued one, continuing")
+            #while self.unqueue(0):
+            #    self.log.debug("Unqueued one, continuing")
 
     def tick(self, filename):
-        self.log.debug("TICK")
+        # self.log.debug("TICK")
         """Try to connect and display messages in queue."""
         if self.connection_attempts < 1000:
             # Trick to connect ASAP when
@@ -689,9 +688,10 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         """Set up EnsimeClient when vim enters.
 
         This is useful to start the EnsimeLauncher as soon as possible."""
-        success = self.setup(True, False)
-        if success:
-            self.editor.message("start_message")
+        # success = self.setup(True, False)
+#        if success:
+#            self.editor.message("start_message")
+        pass
 
     def complete_func(self, findstart, base):
         """Handle omni completion."""

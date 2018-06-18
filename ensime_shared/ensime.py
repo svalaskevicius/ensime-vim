@@ -49,7 +49,7 @@ class Ensime(object):
         # race condition of autocommand handlers being invoked as they're being
         # defined.
         self._vim = vim
-        self._ticker = None
+        # self._ticker = None
         self.clients = {}
 
     @property
@@ -121,14 +121,14 @@ class Ensime(object):
         else:
             client = EnsimeClientV1(editor, launcher)
 
-        self._create_ticker()
+        # self._create_ticker()
 
         return client
 
-    def _create_ticker(self):
-        """Create and start the periodic ticker."""
-        if not self._ticker:
-            self._ticker = Ticker(self._vim)
+#    def _create_ticker(self):
+#        """Create and start the periodic ticker."""
+#        if not self._ticker:
+#            self._ticker = Ticker(self._vim)
 
     def disable_plugin(self):
         """Disable ensime-vim, in the event of an error we can't usefully
@@ -160,11 +160,12 @@ class Ensime(object):
 
     def tick_clients(self):
         """Trigger the periodic tick function in the client."""
-        if not self._ticker:
-            self._create_ticker()
-
-        for client in self.clients.values():
-            self._ticker.tick(client)
+#        if not self._ticker:
+#            self._create_ticker()
+#
+#        for client in self.clients.values():
+#            self._ticker.tick(client)
+        pass
 
     @execute_with_client()
     def com_en_toggle_teardown(self, client, args, range=None):

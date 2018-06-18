@@ -60,7 +60,7 @@ class ProtocolHandler(object):
 
         if handler:
             with catch(NotImplementedError, feature_not_supported):
-                handler(call_id, payload)
+                self.editor.async_call(handler, call_id, payload)
         else:
             self.log.warning('Response has not been handled: %s', Pretty(payload))
 

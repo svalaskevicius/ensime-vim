@@ -330,6 +330,9 @@ class Editor(object):
         else:
             vim.command(cmd)
 
+    def async_call(self, fn, *args, **kwargs):
+        self._vim.async_call(fn, *args, **kwargs)
+
     def symbol_for_inspector_line(self, lineno):
         """Given a line number for the Package Inspector window, returns the
         fully-qualified name for the symbol on that line.
