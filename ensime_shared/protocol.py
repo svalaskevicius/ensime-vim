@@ -29,6 +29,7 @@ class ProtocolHandler(object):
         self.handlers["AnalyzerReadyEvent"] = self.handle_analyzer_ready
         self.handlers["NewScalaNotesEvent"] = self.buffer_typechecks
         self.handlers["NewJavaNotesEvent"] = self.buffer_typechecks_and_display
+        self.handlers["ClearAllScalaNotesEvent"] = self.handle_clear_all_notes
         self.handlers["BasicTypeInfo"] = self.show_type
         self.handlers["ArrowTypeInfo"] = self.show_type
         self.handlers["FullTypeCheckCompleteEvent"] = self.handle_typecheck_complete
@@ -102,6 +103,10 @@ class ProtocolHandler(object):
 
     def handle_false_response(self, call_id, payload):
         raise NotImplementedError()
+
+    def handle_clear_all_notes(self, call_id, payload):
+        raise NotImplementedError()
+
 
 
 class ProtocolHandlerV1(ProtocolHandler):
@@ -260,6 +265,9 @@ class ProtocolHandlerV1(ProtocolHandler):
 
         self.log.info('Displayed type %s', tpe)
         self.editor.raw_message(tpe)
+        
+    def handle_clear_all_notes(self, call_id, payload):
+        self.editor.clean_errors()
 
 
 class ProtocolHandlerV2(ProtocolHandlerV1):

@@ -224,6 +224,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
 
         def reconnect(e):
             self.log.error('send error, reconnecting...', exc_info=True)
+            # todo: run in another ev loop
             self.connect_ensime_server()
             if self.ws:
                 send_it(msg)
@@ -233,6 +234,8 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             with catch(Exception, reconnect):
                 self.log.debug('send: sending JSON on WebSocket')
                 send_it(msg)
+        else:
+            self.log.warning("Cannot send to server as not connected yet")
 
     async def connect_ensime_server(self):
         """Start initial connection with the server."""
