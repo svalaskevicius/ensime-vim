@@ -413,3 +413,19 @@ class Editor(object):
                 self._matches.append(match)
                 # add_match_msg = "added match {} at line {} column {} error {}"
                 # self.log.debug(add_match_msg.format(match, l, c, e))
+        def is_note_correct(note):  # Server bug? See #200
+            return note['beg'] != -1 and note['end'] != -1
+
+        current_file = self.path()
+        loclist = list({
+            'bufnr': self._vim.current.buffer.number,
+            'lnum': note['line'],
+            'col': note['col'],
+            'text': note['msg'],
+            'type': note['severity']['typehint'][4:5],
+        } for note in notes
+            if current_file == path.abspath(note['file'])
+            and is_note_correct(note)
+        )
+        self.write_quickfix_list(loclist, "Typecheck errors")
+
