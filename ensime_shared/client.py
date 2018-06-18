@@ -113,6 +113,7 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         self.suggestions = None
         self.completion_timeout = 10  # seconds
         self.completion_started = False
+        self.completion_finished = False
 
         self.full_types_enabled = False
         """Whether fully-qualified types are displayed by inspections or not"""
@@ -149,14 +150,8 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
                     self.log.debug('poller waiting')
                     result = await self.ws.recv()
                     self.log.debug('got result!' + result)
-                    #self.queue.put_nowait(result)
-                    
-                    _json = json.loads(result)
-                    # Watch out, it may not have callId
-                    call_id = _json.get("callId")
-                    if _json["payload"]:
-                        self.handle_incoming_response(call_id, _json["payload"])
-
+                    self.queue.put_nowait(result)
+                    self.editor.async_call(self.unqueue_all)
             else:
                 self.log.debug('poller sleeping - no ws!')
                 try:
@@ -321,7 +316,6 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
         lineno = self.editor.cursor()[0]
         symbol = self.editor.symbol_for_inspector_line(lineno)
         self.symbol_by_name([symbol])
-        self.unqueue()
 
     def symbol_by_name(self, args, range=None):
         self.log.debug('symbol_by_name: in')
@@ -669,23 +663,11 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
 #        if (now - start) >= timeout:
 #            self.log.warning('unqueue: no reply from server for %ss', timeout)
 #
-    def unqueue_and_display(self, filename):
+    def unqueue_all(self):
         """Unqueue messages and give feedback to user (if necessary)."""
-        if self.running and self.ws:
-            self.editor.lazy_display_error(filename)
-            #while self.unqueue(0):
-            #    self.log.debug("Unqueued one, continuing")
-
-    def tick(self, filename):
-        # self.log.debug("TICK")
-        """Try to connect and display messages in queue."""
-        if self.connection_attempts < 1000:
-            # Trick to connect ASAP when
-            # plugin is  started without
-            # user interaction (CursorMove)
-            self.setup(True, False)
-            self.connection_attempts += 1
-        self.unqueue_and_display(filename)
+        while self.unqueue(0):
+            self.log.debug("Unqueued one, continuing")
+        self.log.debug("Finished unqueuing")
 
     def vim_enter(self, filename):
         """Set up EnsimeClient when vim enters.
@@ -713,8 +695,9 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             row, col, startcol = detect_row_column_start()
 
             # Make request to get response ASAP
-            self.complete(row, col)
+            self.completion_finished = False
             self.completion_started = True
+            self.complete(row, col)
 
             # We always allow autocompletion, even with empty seeds
             return startcol
@@ -722,14 +705,22 @@ class EnsimeClient(TypecheckHandler, DebuggerClient, ProtocolHandler):
             result = []
             # Only handle snd invocation if fst has already been done
             if self.completion_started:
-                # Unqueing messages until we get suggestions
-                self.unqueue(timeout=self.completion_timeout)
-                suggestions = self.suggestions or []
-                self.log.debug('complete_func: suggestions in')
-                for m in suggestions:
-                    result.append(m)
-                self.suggestions = None
-                self.completion_started = False
+                end_time = time.time() + self.completion_timeout
+                time_left = self.completion_timeout
+                self.log.debug("wait for completions")
+                while not self.completion_finished and time_left > 0:
+                    self.log.debug("waiting... ")
+                    self.unqueue(time_left)
+                    time_left = end_time - time.time()
+                self.log.debug("waited for completions" + str(self.completion_finished))
+                if self.completion_finished:
+                    self.log.debug(self.suggestions)
+                    suggestions = self.suggestions or []
+                    self.log.debug('complete_func: suggestions in')
+                    for m in suggestions:
+                        result.append(m)
+                    self.suggestions = None
+                    self.completion_started = False
             return result
 
     def _file_info(self):

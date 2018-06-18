@@ -61,7 +61,7 @@ class ProtocolHandler(object):
 
         if handler:
             with catch(NotImplementedError, feature_not_supported):
-                self.editor.async_call(handler, call_id, payload)
+                handler(call_id, payload)
         else:
             self.log.warning('Response has not been handled: %s', Pretty(payload))
 
@@ -246,6 +246,7 @@ class ProtocolHandlerV1(ProtocolHandler):
         completions = [c for c in payload["completions"] if "typeInfo" in c]
         self.suggestions = [completion_to_suggest(c) for c in completions]
         self.log.debug('handle_completion_info_list: %s', Pretty(self.suggestions))
+        self.completion_finished = True
 
     def handle_type_inspect(self, call_id, payload):
         """Handler for responses `TypeInspectInfo`."""
