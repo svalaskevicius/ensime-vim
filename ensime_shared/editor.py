@@ -429,7 +429,10 @@ class Editor(object):
                 if current_file == path.abspath(note['file'])
                 and is_note_correct(note)
             )
-            self.write_quickfix_list(loclist, "Typecheck errors")
+            if loclist:
+                self.write_quickfix_list(loclist, "Typecheck errors")
+            else:
+                self._vim.command("call setqflist([], 'r', 'Ensime - {}') | cclose".format("Typecheck errors"))
         else:
-            self._vim.command("call setqflist({!s}, 'r', 'Ensime - {}')".format([], "Typecheck errors"))
+            self._vim.command("call setqflist([], 'r', 'Ensime - {}') | cclose".format("Typecheck errors"))
 
